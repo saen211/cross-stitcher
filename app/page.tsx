@@ -141,7 +141,7 @@ export default function Home() {
   const handlePrint = useCallback(() => {
     if (!pattern) return;
     sessionStorage.setItem('cross-stitch-print', JSON.stringify(serializePattern(pattern)));
-    window.open('/print', '_blank');
+    window.open(`${process.env.NEXT_PUBLIC_BASE_PATH ?? ''}/print`, '_blank');
   }, [pattern]);
 
   const handleBottomResizeStart = useCallback((e: React.MouseEvent) => {
