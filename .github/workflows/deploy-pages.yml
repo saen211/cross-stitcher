@@ -39,7 +39,10 @@ jobs:
         run: npm run build:static
         env:
           NEXT_PUBLIC_BASE_PATH: ${{ steps.pages.outputs.base_path }}
-          # Set under Settings → Secrets and variables → Actions → Variables
+          # Set under Settings → Secrets and variables → Actions → Variables.
+          # 'browser' (default here) = save in the browser only, no backend needed.
+          # Set it to 'server' and NEXT_PUBLIC_API_URL to a hosted backend to sync.
+          NEXT_PUBLIC_STORAGE_MODE: ${{ vars.NEXT_PUBLIC_STORAGE_MODE || 'browser' }}
           NEXT_PUBLIC_API_URL: ${{ vars.NEXT_PUBLIC_API_URL }}
           NEXT_TELEMETRY_DISABLED: 1
 
