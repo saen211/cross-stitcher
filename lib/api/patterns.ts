@@ -1,6 +1,7 @@
 // Pattern storage: the browser (IndexedDB) copy is always written first, then
 // the backend when it's reachable. Anything the server missed is marked
 // pending and uploaded by `syncPending()` once the server is back.
+// In browser-only mode (NEXT_PUBLIC_STORAGE_MODE=browser) the server is never contacted.
 
 import { api, ApiError, isOfflineError } from './client';
 import { ensureSession } from './session';
@@ -15,6 +16,7 @@ import {
   markSynced,
   LocalRecord,
 } from '@/lib/db/patternDB';
+import { isBrowserOnly } from '@/lib/config';
 
 export interface PatternSummary {
   id: string;
@@ -90,6 +92,7 @@ const byNewest = (a: PatternSummary, b: PatternSummary) =>
  * Returns true if the server was reachable and everything synced.
  */
 export async function syncPending(): Promise<boolean> {
+  if (isBrowserOnly) return true;
   try {
     await ensureSession();
 
@@ -130,6 +133,10 @@ export async function syncPending(): Promise<boolean> {
 
 export async function savePattern(pattern: Pattern): Promise<SaveResult> {
   const serialized = serializePattern(pattern);
+  if (isBrowserOnly) {
+    await saveLocal(serialized, false);
+    return 'synced';
+  }
   await saveLocal(serialized, true);
   setPendingDeletes(getPendingDeletes().filter((d) => d !== pattern.id));
 
@@ -145,6 +152,10 @@ export async function savePattern(pattern: Pattern): Promise<SaveResult> {
 
 export async function getPattern(id: string): Promise<Pattern> {
   const local = await getLocal(id).catch(() => undefined);
+  if (isBrowserOnly) {
+    if (!local) throw new Error('Pattern not found');
+    return deserializePattern(local);
+  }
   try {
     const remote = await serverGet(id);
     if (local?.pendingSync && new Date(local.updatedAt) >= new Date(remote.updatedAt)) {
@@ -163,6 +174,7 @@ export async function getPattern(id: string): Promise<Pattern> {
 
 export async function listPatterns(): Promise<PatternSummary[]> {
   const local = await listLocal().catch(() => [] as LocalRecord[]);
+  if (isBrowserOnly) return local.map(toSummary).sort(byNewest);
 
   try {
     await syncPending().catch(() => false);
@@ -187,6 +199,7 @@ export async function listPatterns(): Promise<PatternSummary[]> {
 
 export async function deletePattern(id: string): Promise<void> {
   await deleteLocal(id).catch(() => {});
+  if (isBrowserOnly) return;
   try {
     await ensureSession();
     await api.delete<void>(`/patterns/${id}`);

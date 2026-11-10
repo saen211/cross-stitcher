@@ -21,6 +21,7 @@ import { Plus, PanelLeftClose, PanelLeftOpen, Moon, Sun, FolderOpen, Maximize2, 
 import { ToolType } from '@/types/tool';
 import { serializePattern } from '@/lib/db/patternDB';
 import { ensureSession } from '@/lib/api/session';
+import { isBrowserOnly } from '@/lib/config';
 import { listPatterns, getPattern, savePattern, syncPending } from '@/lib/api/patterns';
 
 const StitchCanvas = dynamic(
@@ -62,7 +63,7 @@ export default function Home() {
     (async () => {
       try {
         // Both fail quietly when the server is down; patterns then come from the browser copy.
-        await ensureSession().catch(() => {});
+        if (!isBrowserOnly) await ensureSession().catch(() => {});
         const online = await syncPending().catch(() => false);
         if (!online) setSaveStatus('offline');
 
@@ -334,17 +335,22 @@ export default function Home() {
               <TooltipContent>{darkMode ? 'Light mode' : 'Dark mode'}</TooltipContent>
             </Tooltip>
 
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button variant="outline" size="sm" onClick={() => setShowAIDialog(true)}>
-                  <Wand2 className="mr-1 h-3.5 w-3.5" />
-                  AI Generate
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>Generate a pattern with AI</TooltipContent>
-            </Tooltip>
+            {/* AI generation and the sync code need the backend */}
+            {!isBrowserOnly && (
+              <>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button variant="outline" size="sm" onClick={() => setShowAIDialog(true)}>
+                      <Wand2 className="mr-1 h-3.5 w-3.5" />
+                      AI Generate
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Generate a pattern with AI</TooltipContent>
+                </Tooltip>
 
-            <SyncCodePopover onSessionImported={handleSessionImported} />
+                <SyncCodePopover onSessionImported={handleSessionImported} />
+              </>
+            )}
 
             {pattern && (
               <Tooltip>
@@ -438,7 +444,7 @@ export default function Home() {
         </div>
       </div>
 
-      <AIGenerateDialog open={showAIDialog} onOpenChange={setShowAIDialog} />
+      {!isBrowserOnly && <AIGenerateDialog open={showAIDialog} onOpenChange={setShowAIDialog} />}
       <NewPatternDialog open={showNewDialog} onOpenChange={setShowNewDialog} />
       <ResizePatternDialog open={showResizeDialog} onOpenChange={setShowResizeDialog} />
       <SaveLoadPanel
