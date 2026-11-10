@@ -59,26 +59,43 @@ export function deserializePattern(serialized: SerializedPattern): Pattern {
   };
 }
 
-export async function savePattern(pattern: Pattern): Promise<void> {
+// ── Local (IndexedDB) copy ───────────────────────────────────────────────────
+// Every save lands here first so work survives a refresh even when the backend
+// is down. `pendingSync` marks records the server hasn't received yet.
+
+export type LocalRecord = SerializedPattern & { pendingSync?: boolean };
+
+export async function saveLocal(serialized: SerializedPattern, pendingSync: boolean): Promise<void> {
   const db = await getDb();
-  await db.put(PATTERNS_STORE, serializePattern(pattern));
+  const record: LocalRecord = { ...serialized, pendingSync };
+  await db.put(PATTERNS_STORE, record);
 }
 
-export async function getPattern(id: string): Promise<Pattern | null> {
+export async function getLocal(id: string): Promise<LocalRecord | undefined> {
   const db = await getDb();
-  const row: SerializedPattern | undefined = await db.get(PATTERNS_STORE, id);
-  return row ? deserializePattern(row) : null;
+  return db.get(PATTERNS_STORE, id);
 }
 
-export async function listPatterns(): Promise<SerializedPattern[]> {
+export async function listLocal(): Promise<LocalRecord[]> {
   const db = await getDb();
-  const all: SerializedPattern[] = await db.getAll(PATTERNS_STORE);
-  return all.sort(
-    (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
-  );
+  return db.getAll(PATTERNS_STORE);
 }
 
-export async function deletePattern(id: string): Promise<void> {
+export async function deleteLocal(id: string): Promise<void> {
   const db = await getDb();
   await db.delete(PATTERNS_STORE, id);
+}
+
+/**
+ * Clear the pending flag, but only if the record hasn't changed since it was
+ * uploaded (a newer local edit must stay pending).
+ */
+export async function markSynced(id: string, uploadedUpdatedAt: string): Promise<void> {
+  const db = await getDb();
+  const tx = db.transaction(PATTERNS_STORE, 'readwrite');
+  const record: LocalRecord | undefined = await tx.store.get(id);
+  if (record && record.updatedAt === uploadedUpdatedAt && record.pendingSync) {
+    await tx.store.put({ ...record, pendingSync: false });
+  }
+  await tx.done;
 }

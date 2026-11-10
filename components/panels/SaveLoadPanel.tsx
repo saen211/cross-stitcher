@@ -104,6 +104,7 @@ export function SaveLoadPanel({ open, onOpenChange, onPatternLoad }: Props) {
                   <p className="truncate text-sm font-medium">{p.name}</p>
                   <p className="text-xs text-muted-foreground">
                     {formatDate(p.updatedAt)}
+                    {p.pendingSync && ' · Not synced yet'}
                     {loadingId === p.id && ' · Loading…'}
                   </p>
                 </div>

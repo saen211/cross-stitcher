@@ -14,6 +14,19 @@ export function clearSessionToken(): void {
   localStorage.removeItem(SESSION_KEY);
 }
 
+/** status 0 = network failure (server unreachable). */
+export class ApiError extends Error {
+  constructor(message: string, public status: number) {
+    super(message);
+    this.name = 'ApiError';
+  }
+}
+
+/** True when the backend can't be reached (network error, or proxy 5xx such as Caddy's 502). */
+export function isOfflineError(err: unknown): boolean {
+  return err instanceof ApiError && (err.status === 0 || err.status >= 500);
+}
+
 async function request<T>(
   path: string,
   options: RequestInit = {},
@@ -25,11 +38,16 @@ async function request<T>(
   };
   if (token) headers['X-Session-Token'] = token;
 
-  const res = await fetch(`${API_BASE}${path}`, { ...options, headers });
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}${path}`, { ...options, headers });
+  } catch {
+    throw new ApiError('Server unreachable', 0);
+  }
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error((body as { error?: string }).error ?? `HTTP ${res.status}`);
+    throw new ApiError((body as { error?: string }).error ?? `HTTP ${res.status}`, res.status);
   }
 
   if (res.status === 204) return undefined as T;

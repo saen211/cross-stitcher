@@ -21,14 +21,15 @@ import { Plus, PanelLeftClose, PanelLeftOpen, Moon, Sun, FolderOpen, Maximize2, 
 import { ToolType } from '@/types/tool';
 import { serializePattern } from '@/lib/db/patternDB';
 import { ensureSession } from '@/lib/api/session';
-import { listPatterns, getPattern, savePattern } from '@/lib/api/patterns';
+import { listPatterns, getPattern, savePattern, syncPending } from '@/lib/api/patterns';
 
 const StitchCanvas = dynamic(
   () => import('@/components/canvas/StitchCanvas').then((mod) => ({ default: mod.StitchCanvas })),
   { ssr: false }
 );
 
-type SaveStatus = 'idle' | 'unsaved' | 'saving' | 'saved' | 'error';
+// 'offline' = saved in this browser, server unreachable (retried in the background)
+type SaveStatus = 'idle' | 'unsaved' | 'saving' | 'saved' | 'offline' | 'error';
 
 export default function Home() {
   const pattern = usePatternStore((s) => s.pattern);
@@ -56,11 +57,14 @@ export default function Home() {
   const [isEditingName, setIsEditingName] = useState(false);
   const [editingName, setEditingName] = useState('');
 
-  // ── Startup: ensure session then load last-opened pattern from API ─────────
+  // ── Startup: load last-opened pattern (server if reachable, else this browser) ──
   useEffect(() => {
     (async () => {
       try {
-        await ensureSession();
+        // Both fail quietly when the server is down; patterns then come from the browser copy.
+        await ensureSession().catch(() => {});
+        const online = await syncPending().catch(() => false);
+        if (!online) setSaveStatus('offline');
 
         const lastId = localStorage.getItem('lastOpenedPatternId');
         if (lastId) {
@@ -83,7 +87,7 @@ export default function Home() {
           setShowNewDialog(true);
         }
       } catch {
-        // Backend not reachable — start fresh
+        // Nothing loadable from server or browser — start fresh
         setShowNewDialog(true);
       } finally {
         setIsInitializing(false);
@@ -98,23 +102,33 @@ export default function Home() {
       return;
     }
     if (pattern.updatedAt.getTime() <= lastSavedAtRef.current) {
-      setSaveStatus('saved');
+      setSaveStatus((s) => (s === 'offline' ? s : 'saved'));
       return;
     }
     setSaveStatus('unsaved');
     const timer = setTimeout(async () => {
       setSaveStatus('saving');
       try {
-        await savePattern(pattern);
+        const result = await savePattern(pattern);
         localStorage.setItem('lastOpenedPatternId', pattern.id);
         lastSavedAtRef.current = pattern.updatedAt.getTime();
-        setSaveStatus('saved');
+        setSaveStatus(result === 'synced' ? 'saved' : 'offline');
       } catch {
         setSaveStatus('error');
       }
     }, 2000);
     return () => clearTimeout(timer);
   }, [pattern]);
+
+  // ── While offline, retry syncing every 10 s ──────────────────────────────
+  useEffect(() => {
+    if (saveStatus !== 'offline') return;
+    const timer = setInterval(async () => {
+      const online = await syncPending().catch(() => false);
+      if (online) setSaveStatus((s) => (s === 'offline' ? 'saved' : s));
+    }, 10000);
+    return () => clearInterval(timer);
+  }, [saveStatus]);
 
   // ── Dark mode ─────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -295,6 +309,18 @@ export default function Home() {
             {saveStatus === 'unsaved' && <span className="text-xs text-muted-foreground">Unsaved changes</span>}
             {saveStatus === 'saving'  && <span className="text-xs text-muted-foreground">Saving&hellip;</span>}
             {saveStatus === 'saved'   && <span className="text-xs text-muted-foreground">Saved</span>}
+            {saveStatus === 'offline' && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="text-xs text-amber-600 dark:text-amber-400 cursor-default">
+                    Saved on this device &middot; server offline
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent>
+                  Your work is safe in this browser and will sync to the server when it&apos;s back.
+                </TooltipContent>
+              </Tooltip>
+            )}
             {saveStatus === 'error'   && <span className="text-xs text-destructive">Save failed</span>}
 
             <Tooltip>
